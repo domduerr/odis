@@ -15,7 +15,7 @@ pub struct Node<T> {
     pub id: usize,
     pub x: usize,
     pub y: usize,
-    pub label: (Option<T>, Option<T>),
+    pub label: (Option<Vec<T>>, Option<Vec<T>>),
 }
 
 struct Task<'a> {
@@ -40,6 +40,7 @@ impl<T: Clone> Graph<T> {
         }
     }
 
+    /// Creates a Graph from a set of concepts and their context.
     pub fn from_concepts(
         concepts: &Vec<(BitSet, BitSet)>,
         context: &FormalContext<T>,
@@ -139,7 +140,11 @@ impl<T: Clone> Graph<T> {
                 .iter()
                 .position(|node| node.id == concept_index)
                 .unwrap();
-            nodes[index].label.0 = Some(context.objects[obj].clone());
+            if let Some(ref mut obj_vec) = nodes[index].label.0 {
+                obj_vec.push(context.objects[obj].clone());
+            } else {
+                nodes[index].label.0 = Some(vec![context.objects[obj].clone()]);
+            }
         }
 
         for (concept_index, attr) in attr_labels {
@@ -147,7 +152,11 @@ impl<T: Clone> Graph<T> {
                 .iter()
                 .position(|node| node.id == concept_index)
                 .unwrap();
-            nodes[index].label.1 = Some(context.attributes[attr].clone());
+            if let Some(ref mut attr_vec) = nodes[index].label.1 {
+                attr_vec.push(context.attributes[attr].clone());
+            } else {
+                nodes[index].label.1 = Some(vec![context.attributes[attr].clone()]);
+            }
         }
 
         let graph = Graph {
@@ -191,49 +200,49 @@ mod tests {
             id: 1,
             x: 3,
             y: 3,
-            label: (Some("3".to_string()), Some("0".to_string())),
+            label: (Some(vec!["3".to_string()]), Some(vec!["0".to_string()])),
         });
         nodes.push(Node {
             id: 2,
             x: 1,
             y: 1,
-            label: (None, Some("1".to_string())),
+            label: (None, Some(vec!["1".to_string()])),
         });
         nodes.push(Node {
             id: 3,
             x: 3,
             y: 1,
-            label: (Some("2".to_string()), Some("2".to_string())),
+            label: (Some(vec!["2".to_string()]), Some(vec!["2".to_string()])),
         });
         nodes.push(Node {
             id: 4,
             x: 0,
             y: 1,
-            label: (Some("4".to_string()), Some("3".to_string())),
+            label: (Some(vec!["4".to_string()]), Some(vec!["3".to_string()])),
         });
         nodes.push(Node {
             id: 5,
             x: 2,
             y: 1,
-            label: (Some("6".to_string()), Some("4".to_string())),
+            label: (Some(vec!["6".to_string()]), Some(vec!["4".to_string()])),
         });
         nodes.push(Node {
             id: 6,
             x: 3,
             y: 2,
-            label: (Some("5".to_string()), None),
+            label: (Some(vec!["5".to_string()]), None),
         });
         nodes.push(Node {
             id: 7,
             x: 0,
             y: 2,
-            label: (Some("0".to_string()), None),
+            label: (Some(vec!["0".to_string()]), None),
         });
         nodes.push(Node {
             id: 8,
             x: 1,
             y: 2,
-            label: (Some("1".to_string()), None),
+            label: (Some(vec!["1".to_string()]), None),
         });
         nodes.push(Node {
             id: 9,
