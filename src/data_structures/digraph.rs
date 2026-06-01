@@ -156,11 +156,11 @@ mod tests {
         let succ_c: Vec<u32> = g.successors(2).collect();
         assert_eq!(succ_a, vec![1]);
         assert_eq!(succ_b, vec![2]);
-        assert_eq!(succ_c, vec![]);
+        assert_eq!(succ_c, vec![] as Vec<u32>);
 
         let pred_a: Vec<u32> = g.predecessors(0).collect();
         let pred_b: Vec<u32> = g.predecessors(1).collect();
-        assert_eq!(pred_a, vec![]);
+        assert_eq!(pred_a, vec![] as Vec<u32>);
         assert_eq!(pred_b, vec![0]);
     }
 

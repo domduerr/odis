@@ -85,6 +85,24 @@ let iceberg = Titanic.enumerate_named_concepts(&ctx, 3);
 `ExplorationMachine` drives interactive attribute exploration over a growing context.
 The state machine separates exploration logic from I/O.
 
+### Poset Dimension
+
+```rust
+use odis::algorithms::dimension;
+use odis::Poset;
+
+let p = Poset::<u32>::standard_example(3);
+
+// For smaller Posets
+let exact_dim_hybrid = dimension::Hybrid.dimension(p);
+
+// For larger Posets
+let exact_dim_sat = dimension::SatReduction.dimension(p);
+
+// for an upper bound (For larger Posets)
+let dim = dimension::GraphColoringHeuristic.dimension(p);
+```
+
 ## Formal context format
 
 Contexts are parsed from the [Burmeister `.cxt` format](https://fc-bug-search.uni-wuppertal.de/cxt-file-format):

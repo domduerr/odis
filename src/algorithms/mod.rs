@@ -40,6 +40,7 @@ use crate::FormalContext;
 
 pub(crate) mod attribute_exploration;
 pub mod canonical_basis;
+pub mod dimension;
 pub mod exploration_machine;
 pub mod dimdraw;
 pub mod fcbo;
