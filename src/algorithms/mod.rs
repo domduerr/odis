@@ -19,8 +19,16 @@
 //!
 //! Both algorithms implement [`crate::traits::DrawingAlgorithm`]:
 //!
-//! - [`DimDraw`] — branch-and-bound drawing; time-bounded via `timeout_ms`.
+//! - [`DimDraw`] — branch-and-bound drawing; time-bounded via a [`SearchBudget`],
+//!   which defaults to [`DEFAULT_SEARCH_BUDGET_MS`] and has to be set to
+//!   [`SearchBudget::Unbounded`] by name for a search that ends in a proven
+//!   optimum.
 //! - [`Sugiyama`] — hierarchical layout via the `rust-sugiyama` library.
+//!
+//! [`DimFlux`] refines a DimDraw layout into an additive one with a
+//! force-directed model. It needs the extents and intents of the concepts,
+//! which the generic trait cannot carry, so it implements
+//! [`crate::traits::ConceptDrawingAlgorithm`] instead.
 //!
 //! ## Iceberg lattices
 //!
@@ -42,8 +50,10 @@ pub(crate) mod attribute_exploration;
 pub mod canonical_basis;
 pub mod exploration_machine;
 pub mod dimdraw;
+pub mod dimflux;
 pub mod fcbo;
 pub mod next_closure;
+pub mod search_budget;
 pub mod sugiyama;
 pub mod titanic;
 pub mod upper_neighbor;
@@ -51,8 +61,10 @@ pub mod upper_neighbor;
 pub use canonical_basis::CanonicalBasis;
 pub use exploration_machine::{ExplorationInput, ExplorationMachine, ExplorationState};
 pub use dimdraw::DimDraw;
+pub use dimflux::DimFlux;
 pub use fcbo::Fcbo;
 pub use next_closure::NextClosure;
+pub use search_budget::{SearchBudget, DEFAULT_SEARCH_BUDGET_MS};
 pub use sugiyama::Sugiyama;
 pub use titanic::Titanic;
 
@@ -324,34 +336,22 @@ impl<T: Clone> FormalContext<T> {
             return None;
         }
 
-        // Step 1: find all strict-subconcept pairs: i is a strict subconcept of j
-        // when extent(i) ⊊ extent(j).
+        // The subconcept order itself: i < j exactly when extent(i) ⊊ extent(j).
+        // Convention: (lower, upper) = (more specific, more general).
         let extents: Vec<&BitSet> = concepts.iter().map(|c| &c.0).collect();
-        let mut is_strict_sub = vec![vec![false; n]; n];
+        let mut order: Vec<(u32, u32)> = Vec::new();
         for i in 0..n {
             for j in 0..n {
                 if i != j && extents[i].is_subset(extents[j]) {
-                    is_strict_sub[i][j] = true;
+                    order.push((i as u32, j as u32));
                 }
             }
         }
 
-        // Step 2: transitive reduction → covering edges (i, j) meaning i ≺ j
-        // (concept i is directly covered by concept j; no concept k strictly between them).
-        // Convention: (lower, upper) = (more specific, more general).
-        let mut covering_edges: Vec<(u32, u32)> = Vec::new();
-        for i in 0..n {
-            for j in 0..n {
-                if is_strict_sub[i][j] {
-                    let is_direct = !(0..n).any(|k| is_strict_sub[i][k] && is_strict_sub[k][j]);
-                    if is_direct {
-                        covering_edges.push((i as u32, j as u32));
-                    }
-                }
-            }
-        }
-
-        let poset = Poset::from_covering_relation(concepts, covering_edges).ok()?;
+        // `Poset` reduces that to the covering relation with its own bit-matrix
+        // transitive reduction, so the diagram edges are derived rather than
+        // searched for pair by pair.
+        let poset = Poset::from_transitive_relation(concepts, order).ok()?;
         Lattice::from_poset(poset)
     }
 }
@@ -427,6 +427,8 @@ impl FormalContext<String> {
 #[cfg(test)]
 mod tests {
     use std::{collections::HashSet, fs};
+
+    use crate::algorithms::SearchBudget;
 
     use crate::FormalContext;
 
@@ -652,7 +654,7 @@ mod tests {
         let ctx = load_living_beings();
         let lattice = ctx.concept_lattice().expect("concept_lattice returned None");
         let concept_count = lattice.poset.nodes.len();
-        let drawing = DimDraw { timeout_ms: 0 }
+        let drawing = DimDraw { budget: SearchBudget::Unbounded }
             .draw(&lattice)
             .expect("DimDraw returned None");
         assert_eq!(drawing.coordinates.len(), concept_count);
@@ -748,7 +750,7 @@ mod tests {
         use crate::traits::DrawingAlgorithm;
         let poset = Poset::from_covering_relation(vec![0usize], vec![]).unwrap();
         let lattice = Lattice::from_poset(poset).unwrap();
-        let drawing = DimDraw { timeout_ms: 0 }.draw(&lattice);
+        let drawing = DimDraw { budget: SearchBudget::Unbounded }.draw(&lattice);
         assert!(drawing.is_some());
         assert_eq!(drawing.unwrap().coordinates.len(), 1);
     }
@@ -774,7 +776,7 @@ mod tests {
         // 0 < 1 < 2
         let poset = Poset::from_covering_relation(vec![0usize, 1usize, 2usize], vec![(0, 1), (1, 2)]).unwrap();
         let lattice = Lattice::from_poset(poset).unwrap();
-        let drawing = DimDraw { timeout_ms: 0 }
+        let drawing = DimDraw { budget: SearchBudget::Unbounded }
             .draw(&lattice)
             .expect("DimDraw returned None");
 
@@ -803,7 +805,7 @@ mod tests {
         let poset = Poset::from_covering_relation(vec![0usize, 1usize, 2usize], vec![(0, 1), (1, 2)]).unwrap();
         let lattice = Lattice::from_poset(poset).unwrap();
 
-        let dimdraw = DimDraw { timeout_ms: 0 }
+        let dimdraw = DimDraw { budget: SearchBudget::Unbounded }
             .draw(&lattice)
             .expect("DimDraw returned None");
         let sugiyama = Sugiyama { vertex_spacing: 1 }
@@ -844,7 +846,7 @@ mod tests {
         let ctx = load_living_beings();
         let lattice = ctx.concept_lattice().expect("concept_lattice returned None");
 
-        let solver = DimDraw { timeout_ms: 1 };
+        let solver = DimDraw { budget: SearchBudget::Milliseconds(1) };
         let started = std::time::Instant::now();
         let out = solver
             .solve_with_stats(&lattice)
@@ -866,7 +868,7 @@ mod tests {
         let ctx = load_living_beings();
         let lattice = ctx.concept_lattice().expect("concept_lattice returned None");
 
-        let out = DimDraw { timeout_ms: 1 }
+        let out = DimDraw { budget: SearchBudget::Milliseconds(1) }
             .solve_with_stats(&lattice)
             .expect("DimDraw should return an outcome");
 
@@ -886,13 +888,13 @@ mod tests {
         let ctx = load_living_beings();
         let lattice = ctx.concept_lattice().expect("concept_lattice returned None");
 
-        let out = DimDraw { timeout_ms: 0 }
+        let out = DimDraw { budget: SearchBudget::Unbounded }
             .solve_with_stats(&lattice)
             .expect("DimDraw should return an outcome");
 
         assert!(
             !out.timed_out,
-            "timeout_ms=0 should keep search in unbounded mode"
+            "an unbounded budget should let the search run to exhaustion"
         );
     }
 
@@ -909,7 +911,7 @@ mod tests {
         let sugiyama = Sugiyama { vertex_spacing: 1 }
             .draw(&lattice)
             .expect("Sugiyama returned None");
-        let fast = DimDraw { timeout_ms: 10 }
+        let fast = DimDraw { budget: SearchBudget::Milliseconds(10) }
             .draw(&lattice)
             .expect("DimDraw returned None");
 
@@ -936,8 +938,8 @@ mod tests {
             v.sort();
             v
         };
-        cb_sorted.sort_by(|a, b| key(a).cmp(&key(b)));
-        ca_sorted.sort_by(|a, b| key(a).cmp(&key(b)));
+        cb_sorted.sort_by_key(|a| key(a));
+        ca_sorted.sort_by_key(|a| key(a));
         assert_eq!(cb_sorted, ca_sorted, "always-accept callback should produce the canonical basis");
     }
 }

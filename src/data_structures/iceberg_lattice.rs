@@ -7,7 +7,7 @@ use crate::data_structures::poset::Poset;
 ///
 /// Nodes are ordered by subset-inclusion of extents: `i < j` if `extent(i) ⊊ extent(j)`.
 pub struct IcebergLattice {
-    /// The Hasse diagram of the iceberg concepts.
+    /// The Diagram of the iceberg concepts.
     /// Each node value is `(extent, intent)` as a pair of `BitSet`s.
     pub poset: Poset<(BitSet, BitSet)>,
     /// Absolute support count for each node (parallel to `poset.nodes`).

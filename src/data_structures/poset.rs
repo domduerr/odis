@@ -17,10 +17,16 @@ pub enum PosetError {
 pub struct Poset<T> {
     /// The nodes of the poset, indexed by position (0-based).
     pub nodes: Vec<T>,
-    /// The covering relation (order diagram / Hasse edges): (u, v) means u ≺ v.
+    /// The covering relation (order diagram): (u, v) means u ≺ v.
     pub covering_edges: Vec<(u32, u32)>,
     /// All comparable pairs (u, v) with u < v (strict, reflexivity excluded).
     pub transitive_edges: Vec<(u32, u32)>,
+    /// The same relation as a bit matrix: bit `v` of row `u` is set exactly if
+    /// `u < v`. `transitive_edges` is the readable form of this and is what
+    /// callers iterate; this is what the order queries index into, so that
+    /// [`Poset::is_leq`] is a bit test rather than a scan of every comparable
+    /// pair in the order.
+    pub(crate) reach: Vec<BitSet>,
 }
 
 impl<T: Clone> Poset<T> {
@@ -49,11 +55,13 @@ impl<T: Clone> Poset<T> {
     ) -> Result<Self, PosetError> {
         let n = nodes.len();
         let topo = kahn_topo_sort(n, &edges).ok_or(PosetError::Cycle)?;
-        let transitive_edges = transitive_closure(n, &edges, &topo);
+        let reach = reachability(n, &edges, &topo);
+        let transitive_edges = pairs_of(&reach);
         Ok(Poset {
             nodes,
             covering_edges: edges,
             transitive_edges,
+            reach,
         })
     }
 
@@ -88,11 +96,11 @@ impl<T: Clone> Poset<T> {
             reach[u as usize].insert(v as usize);
         }
         let covering_edges = transitive_reduction(n, &edges, &reach);
-        // Recompute topo order from covering edges for consistency
         Ok(Poset {
             nodes,
             covering_edges,
             transitive_edges: edges,
+            reach,
         })
     }
 
@@ -112,7 +120,9 @@ impl<T: Clone> Poset<T> {
         if a == b {
             return true;
         }
-        self.transitive_edges.contains(&(a, b))
+        self.reach
+            .get(a as usize)
+            .is_some_and(|above| above.contains(b as usize))
     }
 
     /// Returns `true` if `a` is directly covered by `b` (a ≺ b, no element strictly between them).
@@ -185,7 +195,7 @@ pub(crate) fn kahn_topo_sort(n: usize, edges: &[(u32, u32)]) -> Option<Vec<usize
 
 /// Compute the transitive closure of a DAG via BitSet DP in reverse topological order.
 /// Returns the set of all strict comparable pairs (u, v) with u < v (u strictly below v).
-fn transitive_closure(n: usize, edges: &[(u32, u32)], topo: &[usize]) -> Vec<(u32, u32)> {
+fn reachability(n: usize, edges: &[(u32, u32)], topo: &[usize]) -> Vec<BitSet> {
     // reach[u] = set of all nodes reachable from u (excluding u itself)
     let mut reach: Vec<BitSet> = vec![BitSet::with_capacity(n); n];
 
@@ -207,9 +217,14 @@ fn transitive_closure(n: usize, edges: &[(u32, u32)], topo: &[usize]) -> Vec<(u3
         }
     }
 
+    reach
+}
+
+/// Flattens a reachability matrix into the pair list callers iterate over.
+fn pairs_of(reach: &[BitSet]) -> Vec<(u32, u32)> {
     let mut result = Vec::new();
-    for (u, reach_u) in reach.iter().enumerate().take(n) {
-        for v in reach_u.iter() {
+    for (u, above) in reach.iter().enumerate() {
+        for v in above.iter() {
             result.push((u as u32, v as u32));
         }
     }

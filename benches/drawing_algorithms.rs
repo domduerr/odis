@@ -1,6 +1,6 @@
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use odis::{
-    algorithms::{dimdraw::DimDraw, sugiyama::Sugiyama},
+    algorithms::{dimdraw::DimDraw, sugiyama::Sugiyama, SearchBudget},
     traits::DrawingAlgorithm,
     FormalContext, Lattice,
 };
@@ -30,21 +30,21 @@ fn bench_sugiyama(c: &mut Criterion) {
 fn bench_dimdraw_bounded(c: &mut Criterion) {
     let lattice = living_beings_lattice();
     c.bench_function("dimdraw/living_beings_timeout_10ms", |b| {
-        b.iter(|| DimDraw { timeout_ms: 10 }.draw(black_box(&lattice)))
+        b.iter(|| DimDraw { budget: SearchBudget::Milliseconds(10) }.draw(black_box(&lattice)))
     });
 }
 
 fn bench_dimdraw_unbounded(c: &mut Criterion) {
     let lattice = living_beings_lattice();
     c.bench_function("dimdraw/living_beings_unbounded", |b| {
-        b.iter(|| DimDraw { timeout_ms: 0 }.draw(black_box(&lattice)))
+        b.iter(|| DimDraw { budget: SearchBudget::Unbounded }.draw(black_box(&lattice)))
     });
 }
 
 fn bench_dimdraw_fm3_unbounded(c: &mut Criterion) {
     let lattice = fm3_lattice();
     c.bench_function("dimdraw/fm3_unbounded", |b| {
-        b.iter(|| DimDraw { timeout_ms: 0 }.draw(black_box(&lattice)))
+        b.iter(|| DimDraw { budget: SearchBudget::Unbounded }.draw(black_box(&lattice)))
     });
 }
 

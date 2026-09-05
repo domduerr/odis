@@ -8,7 +8,7 @@ concept enumeration, implication bases, lattice drawing, and attribute explorati
 
 ```toml
 [dependencies]
-odis = "2026.3.0"
+odis = "2026.9.0"
 ```
 
 ## Quick start
@@ -59,7 +59,7 @@ for (premise, conclusion) in &basis {
 
 | Struct | Algorithm |
 |---|---|
-| `DimDraw { timeout_ms }` | Realizer-based drawing algorithm; `timeout_ms = 0` for unbounded |
+| `DimDraw { budget }` | Realizer-based drawing algorithm; `budget` defaults to one second, `SearchBudget::Unbounded` searches to a proven optimum |
 | `Sugiyama` | Hierarchical layout via `rust-sugiyama` |
 
 ```rust
@@ -67,7 +67,30 @@ use odis::algorithms::{DimDraw, NextClosure};
 use odis::traits::{ConceptEnumerator, DrawingAlgorithm};
 
 let lattice = ctx.concept_lattice().unwrap();
-let drawing = DimDraw { timeout_ms: 500 }.draw(&lattice).unwrap();
+let drawing = DimDraw::default().draw(&lattice).unwrap();
+```
+
+[`ConceptDrawingAlgorithm`](https://docs.rs/odis/latest/odis/traits/trait.ConceptDrawingAlgorithm.html)
+is for layouts that need to know which objects and attributes each node stands
+for, which a node type generic in `T` cannot tell them:
+
+| Struct | Algorithm |
+|---|---|
+| `DimFlux { budget, iterations }` | DimDraw layout projected into the space of additive diagrams, then refined by a force-directed model that pushes concept nodes away from the edges they are not part of |
+
+```rust
+use odis::{algorithms::DimFlux, traits::ConceptDrawingAlgorithm};
+
+let drawing = DimFlux::default().draw_context(&ctx).unwrap();
+```
+
+The same trait draws iceberg lattices, which need no bottom element of their own:
+
+```rust
+use odis::{algorithms::{DimFlux, Titanic}, traits::{ConceptDrawingAlgorithm, IcebergConceptEnumerator}};
+
+let iceberg = Titanic.enumerate(&ctx, 3);
+let drawing = DimFlux::default().draw_iceberg(&iceberg, ctx.attributes.len()).unwrap();
 ```
 
 ### Iceberg concept lattices

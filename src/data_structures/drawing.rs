@@ -34,8 +34,11 @@ impl Drawing {
     /// each axis. When all source points are identical (degenerate case) the
     /// result places every node at the canvas centre.
     ///
-    /// Duplicate scaled positions are nudged by 20 px per collision to avoid
-    /// nodes being drawn on top of each other.
+    /// Positions that land on the same pixel are nudged apart by 20 px per
+    /// collision so that nodes are not drawn on top of each other. The nudge
+    /// stays inside the viewport: enough coincident nodes exhaust the room for
+    /// it and end up overlapping again, which is the lesser of the two evils
+    /// against pushing them off the canvas.
     ///
     /// # Examples
     ///
@@ -87,16 +90,53 @@ impl Drawing {
         let mut position_counts: std::collections::HashMap<(i32, i32), usize> =
             std::collections::HashMap::new();
 
+        let max_x = (width - margin).max(margin);
+        let max_y = (height - margin).max(margin);
+
         coords
             .iter()
             .map(|&(x, y)| {
                 let scaled_x = (x - center_x) * x_coef + canvas_center_x;
                 let scaled_y = (y - center_y) * y_coef + canvas_center_y;
                 let pos_key = (scaled_x as i32, scaled_y as i32);
-                let offset = *position_counts.entry(pos_key).or_insert(0) as f64 * 20.0;
-                *position_counts.get_mut(&pos_key).unwrap() += 1;
-                (scaled_x + offset, scaled_y + offset)
+                let collisions = position_counts.entry(pos_key).or_insert(0);
+                let offset = *collisions as f64 * 20.0;
+                *collisions += 1;
+                (
+                    (scaled_x + offset).clamp(margin, max_x),
+                    (scaled_y + offset).clamp(margin, max_y),
+                )
             })
             .collect()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// The scaled coordinates are documented to land inside
+    /// `[margin, dim - margin]`. The collision nudge used to be unbounded, so a
+    /// handful of coincident nodes walked straight off the canvas.
+    #[test]
+    fn test_the_collision_nudge_stays_inside_the_viewport() {
+        let mut points = vec![(0.0, 0.0)];
+        points.extend(std::iter::repeat_n((10.0, 10.0), 8));
+        let scaled = Drawing::new(points).scale_to_viewport(100.0, 100.0, 10.0);
+
+        for &(x, y) in &scaled {
+            assert!(
+                (10.0..=90.0).contains(&x) && (10.0..=90.0).contains(&y),
+                "({x}, {y}) is outside the documented box"
+            );
+        }
+    }
+
+    /// Nudging must still do its job where there is room for it.
+    #[test]
+    fn test_coincident_nodes_are_pulled_apart_when_there_is_room() {
+        let scaled = Drawing::new(vec![(0.0, 0.0), (0.0, 0.0), (100.0, 100.0)])
+            .scale_to_viewport(400.0, 400.0, 10.0);
+        assert_ne!(scaled[0], scaled[1]);
     }
 }

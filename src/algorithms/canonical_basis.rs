@@ -191,23 +191,24 @@ mod tests {
 
         let output = index_canonical_basis(&context);
 
-        let mut canonical_basis = Vec::new();
-        canonical_basis.push((
-            BitSet::from_bytes(&[0b00011000]),
-            BitSet::from_bytes(&[0b11111000]),
-        ));
-        canonical_basis.push((
-            BitSet::from_bytes(&[0b00101000]),
-            BitSet::from_bytes(&[0b11111000]),
-        ));
-        canonical_basis.push((
-            BitSet::from_bytes(&[0b00110000]),
-            BitSet::from_bytes(&[0b11111000]),
-        ));
-        canonical_basis.push((
-            BitSet::from_bytes(&[0b10000000]),
-            BitSet::from_bytes(&[0b11100000]),
-        ));
+        let canonical_basis = vec![
+            (
+                BitSet::from_bytes(&[0b00011000]),
+                BitSet::from_bytes(&[0b11111000]),
+            ),
+            (
+                BitSet::from_bytes(&[0b00101000]),
+                BitSet::from_bytes(&[0b11111000]),
+            ),
+            (
+                BitSet::from_bytes(&[0b00110000]),
+                BitSet::from_bytes(&[0b11111000]),
+            ),
+            (
+                BitSet::from_bytes(&[0b10000000]),
+                BitSet::from_bytes(&[0b11100000]),
+            ),
+        ];
 
         assert_eq!(output, canonical_basis);
     }
@@ -242,23 +243,24 @@ mod tests {
 
     #[test]
     fn implication_closure_test() {
-        let mut implications = Vec::new();
-        implications.push((
-            BitSet::from_bytes(&[0b01000000]),
-            BitSet::from_bytes(&[0b00110000]),
-        ));
-        implications.push((
-            BitSet::from_bytes(&[0b00001100]),
-            BitSet::from_bytes(&[0b01111100]),
-        ));
-        implications.push((
-            BitSet::from_bytes(&[0b00010100]),
-            BitSet::from_bytes(&[0b01111100]),
-        ));
-        implications.push((
-            BitSet::from_bytes(&[0b00011000]),
-            BitSet::from_bytes(&[0b01111100]),
-        ));
+        let implications = vec![
+            (
+                BitSet::from_bytes(&[0b01000000]),
+                BitSet::from_bytes(&[0b00110000]),
+            ),
+            (
+                BitSet::from_bytes(&[0b00001100]),
+                BitSet::from_bytes(&[0b01111100]),
+            ),
+            (
+                BitSet::from_bytes(&[0b00010100]),
+                BitSet::from_bytes(&[0b01111100]),
+            ),
+            (
+                BitSet::from_bytes(&[0b00011000]),
+                BitSet::from_bytes(&[0b01111100]),
+            ),
+        ];
 
         let mut input = BitSet::new();
         input.insert(1);

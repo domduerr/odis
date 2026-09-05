@@ -4,6 +4,11 @@ use crate::data_structures::{drawing::Drawing, lattice::Lattice, poset::Poset};
 
 /// A layout algorithm that computes a 2D drawing from a `Lattice` or `Poset`.
 ///
+/// Being generic in the node type, an implementor sees nothing of a node but
+/// its place in the order. Layouts that also need to know which objects and
+/// attributes a node stands for implement
+/// [`crate::traits::ConceptDrawingAlgorithm`] instead.
+///
 /// # Preconditions
 /// - The lattice/poset must be non-empty (at least one node).
 ///
@@ -14,7 +19,10 @@ use crate::data_structures::{drawing::Drawing, lattice::Lattice, poset::Poset};
 ///   Viewport scaling is the consumer's responsibility.
 ///
 /// # Complexity
-/// - `DimDraw`: branch-and-bound; bounded by `timeout_ms` (0 = unbounded).
+/// - `DimDraw`: annealed incumbent plus branch-and-bound over one
+///   representative per symmetry class; bounded by its
+///   [`crate::algorithms::SearchBudget`], and a proven optimum only when that
+///   budget is `Unbounded`.
 /// - `Sugiyama`: O((V + E) log V) via the `rust_sugiyama` library.
 ///   Returns `None` only for an empty lattice.
 pub trait DrawingAlgorithm {

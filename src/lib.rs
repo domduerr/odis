@@ -22,7 +22,8 @@
 //!
 //! - [`algorithms`] — Concept enumeration, implication bases, lattice drawing, exploration
 //! - [`traits`] — Extension traits: [`traits::ConceptEnumerator`], [`traits::DrawingAlgorithm`],
-//!   [`traits::ImplicationEngine`], [`traits::IcebergConceptEnumerator`]
+//!   [`traits::ConceptDrawingAlgorithm`], [`traits::ImplicationEngine`],
+//!   [`traits::IcebergConceptEnumerator`]
 //!
 //! ## Key types
 //!
@@ -43,4 +44,7 @@ pub use data_structures::formal_context::{FormalContext, FormatError};
 pub use data_structures::iceberg_lattice::IcebergLattice;
 pub use data_structures::lattice::Lattice;
 pub use data_structures::poset::{Poset, PosetError};
-pub use traits::{ConceptEnumerator, DrawingAlgorithm, IcebergConceptEnumerator, ImplicationEngine};
+pub use traits::{
+    ConceptDrawingAlgorithm, ConceptEnumerator, DrawingAlgorithm, IcebergConceptEnumerator,
+    ImplicationEngine,
+};

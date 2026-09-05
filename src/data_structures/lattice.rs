@@ -37,13 +37,19 @@ impl<T: Clone> Lattice<T> {
             return None;
         }
 
-        // top = unique node with no strict upper bound (no node strictly above it)
-        // bottom = unique node with no strict lower bound (no node strictly below it)
+        // top = the one node with nothing strictly above it, bottom = the one
+        // with nothing strictly below. Read off the reachability index: a node
+        // has something above it exactly if its row is non-empty, and something
+        // below it exactly if it appears in some row.
+        let mut has_below = bit_set::BitSet::with_capacity(n);
+        for above in &poset.reach {
+            has_below.union_with(above);
+        }
         let top_candidates: Vec<u32> = (0..n as u32)
-            .filter(|&u| !poset.transitive_edges.iter().any(|&(a, _b)| a == u))
+            .filter(|&u| poset.reach[u as usize].is_empty())
             .collect();
         let bottom_candidates: Vec<u32> = (0..n as u32)
-            .filter(|&u| !poset.transitive_edges.iter().any(|&(_a, b)| b == u))
+            .filter(|&u| !has_below.contains(u as usize))
             .collect();
 
         if top_candidates.len() != 1 || bottom_candidates.len() != 1 {

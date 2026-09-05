@@ -548,7 +548,7 @@ impl<T> FormalContext<T> {
             order.push((index, sum));
         }
 
-        order.sort_by(|x, y| x.1.cmp(&y.1));
+        order.sort_by_key(|x| x.1);
 
         for index in 0..(order.len() - 1) {
             let swap = order[index].0;

@@ -100,7 +100,7 @@ fn bitset_key(b: &BitSet) -> Vec<usize> {
 /// Construct an `IcebergLattice` from a flat collection of `(extent, intent, support)` triples.
 ///
 /// Builds the transitive relation (extent inclusion) and delegates to
-/// `Poset::from_transitive_relation` for Hasse reduction.
+/// `Poset::from_transitive_relation` for reduction.
 fn build_iceberg_lattice(
     concepts: Vec<(BitSet, BitSet, u32)>,
     total_objects: u32,
@@ -258,6 +258,7 @@ mod tests {
     use std::fs;
 
     use super::*;
+    use crate::algorithms::SearchBudget;
     use crate::traits::IcebergConceptEnumerator;
     use crate::FormalContext;
 
@@ -317,7 +318,7 @@ mod tests {
             assert!(*s >= 4, "concept {i} has support {s} < 4");
         }
         // The top concept (support = |G| = 8) must be present.
-        assert!(ice.support.iter().any(|&s| s == 8));
+        assert!(ice.support.contains(&8));
     }
 
     #[test]
@@ -331,7 +332,7 @@ mod tests {
     }
 
     #[test]
-    fn hasse_edges_satisfy_transitivity() {
+    fn covering_edges_satisfy_transitivity() {
         let ctx = living_beings_ctx();
         let ice = Titanic.enumerate(&ctx, 1);
         // Every covering edge (u, v) must satisfy extent[u] ⊊ extent[v].
@@ -362,10 +363,10 @@ mod tests {
 
         let ctx = living_beings_ctx();
         let ice = Titanic.enumerate(&ctx, 4);
-        assert!(ice.poset.nodes.len() > 0, "expected at least one concept at min_support=4");
+        assert!(!ice.poset.nodes.is_empty(), "expected at least one concept at min_support=4");
 
         // draw_poset must return a drawing with one coordinate per node
-        let drawing = DimDraw { timeout_ms: 5000 }
+        let drawing = DimDraw { budget: SearchBudget::Milliseconds(5000) }
             .draw_poset(&ice.poset)
             .expect("draw_poset should succeed on non-empty poset");
         assert_eq!(

@@ -244,6 +244,6 @@ mod tests {
         }
 
         assert_eq!(machine.state, ExplorationState::Finished);
-        assert!(machine.basis.len() > 0, "basis should be non-empty for a non-trivial context");
+        assert!(!machine.basis.is_empty(), "basis should be non-empty for a non-trivial context");
     }
 }
