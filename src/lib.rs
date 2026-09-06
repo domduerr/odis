@@ -24,6 +24,7 @@
 //! - [`traits`] — Extension traits: [`traits::ConceptEnumerator`], [`traits::DrawingAlgorithm`],
 //!   [`traits::ConceptDrawingAlgorithm`], [`traits::ImplicationEngine`],
 //!   [`traits::IcebergConceptEnumerator`]
+//! - [`repository`] — Loading published contexts from the [FCA repository](https://fcarepository.org/)
 //!
 //! ## Key types
 //!
@@ -36,6 +37,7 @@
 
 pub mod algorithms;
 mod data_structures;
+pub mod repository;
 pub mod traits;
 
 pub use data_structures::digraph::{DiNode, Digraph};

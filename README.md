@@ -8,7 +8,7 @@ concept enumeration, implication bases, lattice drawing, and attribute explorati
 
 ```toml
 [dependencies]
-odis = "2026.9.0"
+odis = "2026.9.1"
 ```
 
 ## Quick start
@@ -125,6 +125,26 @@ lives_in_water
 X.
 .X
 ```
+
+## FCA repository
+
+Contexts published in the FCA literature can be loaded straight from the
+[FCA repository](https://fcarepository.org/):
+
+```rust
+use odis::repository;
+
+for entry in repository::fetch_catalog().await? {
+    println!("{} — {} ({:?} objects)", entry.filename, entry.title, entry.objects);
+}
+
+let ctx = repository::fetch_context("livingbeings_en.cxt").await?;
+```
+
+The API is async because it also compiles for `wasm32`, where the only available
+transport is the browser's fetch API, which has no blocking form. The same code runs
+on all targets. `repository::parse_catalog` and `repository::context_url` are public
+too, for a caller that already has the bytes.
 
 ## API documentation
 

@@ -1,0 +1,22 @@
+B
+States of a simple media player
+6
+5
+
+1
+2
+3
+4
+5
+6
+playing
+not playing
+rewinding
+forwarding
+idle
+.X..X
+X....
+.X..X
+.X..X
+.XX..
+.X.X.

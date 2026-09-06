@@ -1,11 +1,11 @@
 [package]
 name = "odis"
-version = "2026.9.0"
+version = "2026.9.1"
 authors = ["Dominik Dürrschnabel", "Armin Strupp"]
 edition = "2021"
 license = "AGPL-3.0-only"
 description = "Formal Concept Analysis algorithms and data structures"
-repository = "https://github.com/odis-rs/odis"
+repository = "https://github.com/domduerr/odis"
 homepage = "https://domduerr.github.io/odis-web.github.io/"
 documentation = "https://docs.rs/odis"
 keywords = ["fca", "lattice", "formal-concept", "algorithms"]
@@ -16,9 +16,16 @@ readme = "README.md"
 bit-set = "0.8.0"
 rust-sugiyama = "0.3.0"
 
+# One client for both targets: on wasm32 reqwest routes through the browser's fetch
+# API, so `odis::repository` needs no separate code path there. Only the TLS stack
+# differs -- the browser supplies it, a native build has to bring its own.
+[target.'cfg(not(target_arch = "wasm32"))'.dependencies]
+reqwest = { version = "0.13.4", default-features = false, features = ["rustls"] }
+
 [target.'cfg(target_arch = "wasm32")'.dependencies]
 getrandom = {version = "0.2.16", features = ["js"]}
 web-sys = { version = "0.3", features = ["Window", "Performance"] }
+reqwest = { version = "0.13.4", default-features = false }
 
 [dev-dependencies]
 itertools = "0.13.0"
