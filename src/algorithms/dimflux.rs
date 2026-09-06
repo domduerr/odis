@@ -33,7 +33,7 @@
 //!
 //! **A force model then maximizes the conflict distance.** Nodes repel
 //! non-incident edges with energy `Σ 1/d`, edges contract with `Σ |f|²` so the
-//! drawing does not fly apart, and a gravitational penalty holds the element
+//! drawing does not fly apart, and a gravitational potential holds the element
 //! vectors in their half-planes. The forces act on the element vectors, never
 //! on nodes directly, so every intermediate layout stays additive. Since
 //! positions depend linearly on those vectors, the gradient is the gradient in
@@ -45,18 +45,27 @@
 //! refinement buys local readability and cannot spend the global structure
 //! DimDraw found.
 //!
-//! # Deviations from the paper
+//! # What holds the drawing together
 //!
-//! The gravitational penalty is the hinge `max(0, tan(φ₀)|x| − y)²` on the
-//! vector mirrored into the upper half-plane, rather than the paper's angular
-//! potential. It has the same safe zone — the cone of half-angle `π/2 − φ₀`
-//! around the vertical, with `φ₀ = π/(|G|+1)` for objects and `π/(|M|+1)` for
-//! attributes — and the same job, but it is finite and continuously
-//! differentiable everywhere, including across the horizontal axis where the
-//! angular potential's singularity sits. The paper reports precisely that
-//! singularity as a source of instability once object and attribute vectors can
-//! both leave their half-planes. Feasibility is in any case also enforced
-//! exactly: a line search step that would tilt an edge downward is rejected.
+//! The two halves of that last claim need different machinery, and both are
+//! load-bearing.
+//!
+//! The *topology* is held by the repulsion, as described: no node crosses a
+//! non-incident edge, so the cells of the initial layout survive.
+//!
+//! The *additive regularity* — the parallelograms, the straight chains, the
+//! symmetry the initial layout was chosen for — is held by the gravitational
+//! potential, and only by it. Nothing else in the model has an opinion about
+//! whether an object vector points up or down: the repulsion and the attraction
+//! are both invariant under rotation, and a diagram whose object vectors have
+//! turned over is still a line diagram and still additive, because an edge sums
+//! several elements and the rest can carry it. So the potential has to be a
+//! barrier rather than a fee. It is `E(φ) = ±(φ + cot(φ) · sin²φ₀) + c` on the
+//! wedge of half-width `φ₀ = π/(|G|+1)` (objects) or `π/(|M|+1)` (attributes)
+//! along the horizontal axis, zero on the safe cone between, and infinite at
+//! the axis itself. Charge a finite price instead and the repulsion will pay
+//! it: the drawing keeps its cells and its additivity, scores better on the
+//! energy, and looks far worse.
 //!
 //! # Iceberg lattices
 //!
@@ -81,7 +90,7 @@
 //! `O(n · |S|²)` for `|S| = |G| + |M|`, and each refinement iteration costs
 //! `O(n · |E|)` for the node/edge pairs.
 
-use std::f64::consts::PI;
+use std::f64::consts::{PI, SQRT_2};
 
 use bit_set::BitSet;
 
@@ -161,10 +170,21 @@ impl ConceptDrawingAlgorithm for DimFlux {
 
         // DimDraw works in the odis convention, where the top of the lattice
         // has the smallest y; the force model reads better the other way up.
+        //
+        // It also hands back the raw realizer coordinates rotated by 45°, which
+        // leaves the diagram half as wide as it is tall. Stretching by `√2`
+        // across and squeezing by `√½` down is the canonical way to read such a
+        // diagram — it restores the aspect ratio the two linear extensions
+        // describe, at no cost to the order, since a diagonal map takes
+        // parallelograms to parallelograms and cannot tilt an edge past the
+        // horizontal. The force model is not scale-free in the aspect ratio, so
+        // this has to happen before the refinement rather than after it: on the
+        // unstretched layout the repulsion finds the drawing cramped sideways
+        // and shears it apart to get room.
         let target: Vec<[f64; 2]> = initial
             .coordinates
             .iter()
-            .map(|&(x, y)| [x, -y])
+            .map(|&(x, y)| [x * SQRT_2, -y / SQRT_2])
             .collect();
 
         let mut vectors = project(&model, &target)?;
@@ -173,7 +193,15 @@ impl ConceptDrawingAlgorithm for DimFlux {
         // diagram; in practice it nearly always does, and repairing it costs
         // fidelity to the layout DimDraw found, so it is only repaired when it
         // has to be.
-        if !model.is_line_diagram(&model.positions(&vectors)) {
+        //
+        // It has to be for a vector in the wrong half-plane as well, not only
+        // for a diagram with an edge pointing the wrong way. The gravitational
+        // potential is a barrier, and a barrier only confines what starts
+        // inside it: the refinement cannot walk a vector back through an
+        // infinitely tall wall, and the penalty on the far side is steep enough
+        // that the trust region throttles every other force to a crawl while it
+        // tries. Starting feasible is what makes the rest of the model work.
+        if !model.is_line_diagram(&model.positions(&vectors)) || !model.is_oriented(&vectors) {
             enforce_orientation(&model, &mut vectors);
             if !model.is_line_diagram(&model.positions(&vectors)) {
                 return Some(initial);
@@ -207,15 +235,41 @@ struct Model {
     contributions: Vec<Vec<u32>>,
     /// Covering edges as `(lower, upper)`.
     edges: Vec<(u32, u32)>,
-    /// `tan(φ₀)` per element. The safe zone of `e` holds the vectors that
-    /// satisfy `mod(e) · y ≥ grav_slope[e] · |x|`.
-    grav_slope: Vec<f64>,
+    /// `φ₀` per element: the width of the wedge along the horizontal axis that
+    /// the gravitational potential keeps the vector of `e` out of. The safe
+    /// zone of `e` is the cone `φ₀ ≤ mod(e) · φ ≤ π − φ₀`.
+    safe_zone: Vec<f64>,
 }
 
-/// The steepest safe zone the gravitational penalty is allowed to demand.
-/// `φ₀ = π/(|G|+1)` degenerates to a single admissible direction for a context
-/// with one object, and to the wrong half-plane beyond that.
-const MAX_SAFE_ZONE_ANGLE: f64 = 1.4;
+/// Weight of the repulsive energy in the total.
+///
+/// The repulsive and attractive energies are homogeneous of degree `-1` and
+/// `+2` in the element vectors, so between the two of them these weights fix
+/// nothing but the scale of the drawing. What they do decide is how that scale
+/// compares to the gravitational potential, which depends on the *directions*
+/// of the element vectors alone and so does not scale at all.
+const REPULSION_WEIGHT: f64 = 50.0;
+/// Weight of the attractive energy in the total. See [`REPULSION_WEIGHT`].
+const ATTRACTION_WEIGHT: f64 = 1.0;
+/// Weight of the gravitational energy in the total. See [`REPULSION_WEIGHT`].
+const GRAVITY_WEIGHT: f64 = 30.0;
+
+/// Penalty per unit of vertical displacement for an element vector that has
+/// left its half-plane altogether.
+///
+/// The angular potential rises to infinity at the horizontal axis and so is
+/// defined on one half-plane only. A line search samples nothing but the end of
+/// its step, though, and a step long enough to clear the barrier lands on the
+/// far side of it, where the angular potential has nothing to say. This is what
+/// is waiting there.
+///
+/// It is deliberately linear rather than quadratic, so that its restoring force
+/// is the same all the way to the axis. A quadratic penalty relaxes as the
+/// vector comes back, and since the barrier it is being pushed against is
+/// infinitely tall from the inside, the vector settles against the outside of
+/// the wall — arbitrarily close to horizontal, and stuck there — instead of
+/// returning through it.
+const WRONG_HALF_PLANE_PENALTY: f64 = 1e3;
 
 /// Below this distance a node counts as lying on the edge: the repulsion is
 /// capped there instead of running off to infinity.
@@ -244,8 +298,8 @@ impl Model {
             }
         }
 
-        let zone = |count: usize| (PI / (count + 1) as f64).min(MAX_SAFE_ZONE_ANGLE).tan();
-        let grav_slope = (0..element_count)
+        let zone = |count: usize| PI / (count + 1) as f64;
+        let safe_zone = (0..element_count)
             .map(|e| {
                 if e < object_count {
                     zone(object_count)
@@ -262,7 +316,7 @@ impl Model {
             members,
             contributions,
             edges: poset.covering_edges.clone(),
-            grav_slope,
+            safe_zone,
         }
     }
 
@@ -290,6 +344,12 @@ impl Model {
                 position
             })
             .collect()
+    }
+
+    /// Whether every element vector sits in the half-plane it belongs in, which
+    /// is the region the gravitational potential is defined on.
+    fn is_oriented(&self, vectors: &[f64]) -> bool {
+        (0..self.element_count).all(|e| self.orientation(e) * vectors[2 * e + 1] > 0.0)
     }
 
     /// A layout is a line diagram exactly if every covering edge points
@@ -346,10 +406,10 @@ impl Model {
                 positions[upper][0] - positions[lower][0],
                 positions[upper][1] - positions[lower][1],
             ];
-            energy += delta[0] * delta[0] + delta[1] * delta[1];
+            energy += ATTRACTION_WEIGHT * (delta[0] * delta[0] + delta[1] * delta[1]);
             for axis in 0..2 {
-                node_gradient[upper][axis] += 2.0 * delta[axis];
-                node_gradient[lower][axis] -= 2.0 * delta[axis];
+                node_gradient[upper][axis] += ATTRACTION_WEIGHT * 2.0 * delta[axis];
+                node_gradient[lower][axis] -= ATTRACTION_WEIGHT * 2.0 * delta[axis];
             }
         }
 
@@ -364,11 +424,11 @@ impl Model {
                 let (distance, at_node, at_lower, at_upper) =
                     conflict_distance(positions[node], positions[lower], positions[upper]);
                 if distance <= MIN_CONFLICT_DISTANCE {
-                    energy += 1.0 / MIN_CONFLICT_DISTANCE;
+                    energy += REPULSION_WEIGHT / MIN_CONFLICT_DISTANCE;
                     continue;
                 }
-                energy += 1.0 / distance;
-                let scale = -1.0 / (distance * distance);
+                energy += REPULSION_WEIGHT / distance;
+                let scale = -REPULSION_WEIGHT / (distance * distance);
                 for axis in 0..2 {
                     node_gradient[node][axis] += scale * at_node[axis];
                     node_gradient[lower][axis] += scale * at_lower[axis];
@@ -389,22 +449,55 @@ impl Model {
             gradient[2 * element + 1] = collected[1];
         }
 
-        // Gravity: a penalty for an element vector leaving its safe zone,
-        // measured on the vector mirrored into the upper half-plane.
+        // Gravity: an angular potential that pushes an element vector out of
+        // the wedge of half-width φ₀ along the horizontal axis, measured on the
+        // vector mirrored into the upper half-plane. It is a barrier, not a
+        // nudge — it rises to infinity at the axis — and that is the point.
+        // Object vectors pointing up and attribute vectors pointing down is
+        // what makes an additive placement a line diagram at all, and it is
+        // what keeps the parallelograms of the initial layout intact: the
+        // repulsion is more than strong enough to turn an element vector right
+        // over if it is merely charged for the privilege.
         for element in 0..self.element_count {
             let orientation = self.orientation(element);
             let mirrored = [
                 orientation * vectors[2 * element],
                 orientation * vectors[2 * element + 1],
             ];
-            let excess = self.grav_slope[element] * mirrored[0].abs() - mirrored[1];
-            if excess > 0.0 {
-                energy += excess * excess;
-                let slope_sign = if mirrored[0] < 0.0 { -1.0 } else { 1.0 };
-                gradient[2 * element] +=
-                    2.0 * excess * self.grav_slope[element] * slope_sign * orientation;
-                gradient[2 * element + 1] -= 2.0 * excess * orientation;
+            let zone = self.safe_zone[element];
+
+            // Past the barrier, where the angular potential is undefined. A
+            // zero vector lands here too and is left alone, which is what an
+            // element that the projection found redundant should get.
+            if mirrored[1] <= 0.0 {
+                energy += GRAVITY_WEIGHT * WRONG_HALF_PLANE_PENALTY * -mirrored[1];
+                gradient[2 * element + 1] +=
+                    GRAVITY_WEIGHT * WRONG_HALF_PLANE_PENALTY * -orientation;
+                continue;
             }
+
+            let angle = mirrored[1].atan2(mirrored[0]);
+            if angle >= zone && angle <= PI - zone {
+                continue;
+            }
+
+            // `E(φ) = ±(φ + cot(φ) · sin²φ₀) + c`, with `c` chosen to make it
+            // vanish where the safe zone begins, so that the potential is
+            // continuous. `side` distinguishes the two ends of the half-plane.
+            let side = if angle < zone { 1.0 } else { -1.0 };
+            let (zone_sin, zone_cos) = zone.sin_cos();
+            let zone_sin_squared = zone_sin * zone_sin;
+            let (sin, cos) = angle.sin_cos();
+            let offset = -zone - zone_sin * zone_cos + if side > 0.0 { 0.0 } else { PI };
+            energy += GRAVITY_WEIGHT * (side * (angle + (cos / sin) * zone_sin_squared) + offset);
+
+            // `dE/dφ = ±(sin²φ − sin²φ₀)/sin²φ` and `∇φ = (−y, x)/|n|²`, which
+            // together lose the `|n|²`: the potential reads the direction of
+            // the vector and nothing else.
+            let factor = GRAVITY_WEIGHT * side * (sin * sin - zone_sin_squared)
+                / (mirrored[1] * mirrored[1]);
+            gradient[2 * element] += factor * -mirrored[1] * orientation;
+            gradient[2 * element + 1] += factor * mirrored[0] * orientation;
         }
 
         energy
@@ -894,6 +987,51 @@ mod tests {
 
             assert!(before.is_finite(), "{name}: initial layout is infeasible");
             assert!(after <= before, "{name}: energy rose from {before} to {after}");
+        }
+    }
+
+    /// The refinement leaves every element vector in the half-plane it belongs
+    /// in: objects up, attributes down.
+    ///
+    /// This is what the gravitational barrier is for, and the repulsion is
+    /// easily strong enough to turn a vector right over if the barrier can be
+    /// bought off for a finite price. Nothing downstream *fails* when a vector
+    /// flips — the diagram stays a line diagram and stays additive, because an
+    /// edge sums several elements and the rest can carry it — but the additive
+    /// regularities go: the parallelograms of the initial layout invert and the
+    /// chains bend around them.
+    #[test]
+    fn test_the_refinement_keeps_the_element_vectors_in_their_half_planes() {
+        for name in CONTEXTS {
+            let context = context(name);
+            let (lattice, model) = model_of(&context);
+            let initial = DimDraw { budget: SearchBudget::Milliseconds(200) }.draw(&lattice).unwrap();
+            let mut vectors = project(&model, &upward(&initial)).unwrap();
+            normalize_scale(&model, &mut vectors);
+            enforce_orientation(&model, &mut vectors);
+            let refined = refine(&model, vectors, 300);
+
+            let scale = (0..model.element_count)
+                .map(|e| {
+                    (refined[2 * e] * refined[2 * e] + refined[2 * e + 1] * refined[2 * e + 1])
+                        .sqrt()
+                })
+                .sum::<f64>()
+                / model.element_count as f64;
+
+            for element in 0..model.element_count {
+                let height = model.orientation(element) * refined[2 * element + 1];
+                // A vector the projection found redundant is legitimately the
+                // zero vector, which sits on the axis and has no half-plane.
+                let length = (refined[2 * element] * refined[2 * element]
+                    + refined[2 * element + 1] * refined[2 * element + 1])
+                    .sqrt();
+                assert!(
+                    height >= 0.0 || length < 0.05 * scale,
+                    "{name}: element {element} points into the wrong half-plane \
+                     (height {height}, length {length})"
+                );
+            }
         }
     }
 
