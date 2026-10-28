@@ -128,17 +128,41 @@ pub struct DimFlux {
     /// A ceiling rather than a target: the refinement also stops once the
     /// layout has settled or the line search can no longer make progress.
     pub iterations: usize,
+    /// Weight of the repulsive energy in the total.
+    ///
+    /// The repulsive and attractive energies are homogeneous of degree `-1`
+    /// and `+2` in the element vectors, so between the two of them these
+    /// weights fix nothing but the scale of the drawing. What they do decide is
+    /// how that scale compares to the gravitational potential, which depends on
+    /// the *directions* of the element vectors alone and so does not scale at
+    /// all.
+    pub repulsion_weight: f64,
+    /// Weight of the attractive energy in the total. See
+    /// [`DimFlux::repulsion_weight`].
+    pub attraction_weight: f64,
+    /// Weight of the gravitational energy in the total. See
+    /// [`DimFlux::repulsion_weight`].
+    pub gravity_weight: f64,
 }
 
 /// Iterations the refinement runs at most, which is enough to converge on the
 /// lattice sizes that get drawn as a single diagram in practice.
 pub const DEFAULT_REFINEMENT_ITERATIONS: usize = 200;
+/// Default for [`DimFlux::repulsion_weight`].
+pub const DEFAULT_REPULSION_WEIGHT: f64 = 100.0;
+/// Default for [`DimFlux::attraction_weight`].
+pub const DEFAULT_ATTRACTION_WEIGHT: f64 = 1.0;
+/// Default for [`DimFlux::gravity_weight`].
+pub const DEFAULT_GRAVITY_WEIGHT: f64 = 30.0;
 
 impl Default for DimFlux {
     fn default() -> Self {
         DimFlux {
             budget: SearchBudget::default(),
             iterations: DEFAULT_REFINEMENT_ITERATIONS,
+            repulsion_weight: DEFAULT_REPULSION_WEIGHT,
+            attraction_weight: DEFAULT_ATTRACTION_WEIGHT,
+            gravity_weight: DEFAULT_GRAVITY_WEIGHT,
         }
     }
 }
@@ -163,7 +187,7 @@ impl ConceptDrawingAlgorithm for DimFlux {
         }
         .draw_poset(concepts)?;
 
-        let model = Model::new(concepts, object_count, attribute_count);
+        let model = Model::new(concepts, object_count, attribute_count, self);
         if model.node_count <= 1 || model.element_count == 0 {
             return Some(initial);
         }
@@ -239,20 +263,11 @@ struct Model {
     /// the gravitational potential keeps the vector of `e` out of. The safe
     /// zone of `e` is the cone `φ₀ ≤ mod(e) · φ ≤ π − φ₀`.
     safe_zone: Vec<f64>,
+    /// The force weights, taken over from [`DimFlux`].
+    repulsion_weight: f64,
+    attraction_weight: f64,
+    gravity_weight: f64,
 }
-
-/// Weight of the repulsive energy in the total.
-///
-/// The repulsive and attractive energies are homogeneous of degree `-1` and
-/// `+2` in the element vectors, so between the two of them these weights fix
-/// nothing but the scale of the drawing. What they do decide is how that scale
-/// compares to the gravitational potential, which depends on the *directions*
-/// of the element vectors alone and so does not scale at all.
-const REPULSION_WEIGHT: f64 = 50.0;
-/// Weight of the attractive energy in the total. See [`REPULSION_WEIGHT`].
-const ATTRACTION_WEIGHT: f64 = 1.0;
-/// Weight of the gravitational energy in the total. See [`REPULSION_WEIGHT`].
-const GRAVITY_WEIGHT: f64 = 30.0;
 
 /// Penalty per unit of vertical displacement for an element vector that has
 /// left its half-plane altogether.
@@ -280,6 +295,7 @@ impl Model {
         poset: &Poset<(BitSet, BitSet)>,
         object_count: usize,
         attribute_count: usize,
+        algorithm: &DimFlux,
     ) -> Model {
         let node_count = poset.nodes.len();
         let element_count = object_count + attribute_count;
@@ -317,6 +333,9 @@ impl Model {
             contributions,
             edges: poset.covering_edges.clone(),
             safe_zone,
+            repulsion_weight: algorithm.repulsion_weight,
+            attraction_weight: algorithm.attraction_weight,
+            gravity_weight: algorithm.gravity_weight,
         }
     }
 
@@ -406,10 +425,10 @@ impl Model {
                 positions[upper][0] - positions[lower][0],
                 positions[upper][1] - positions[lower][1],
             ];
-            energy += ATTRACTION_WEIGHT * (delta[0] * delta[0] + delta[1] * delta[1]);
+            energy += self.attraction_weight * (delta[0] * delta[0] + delta[1] * delta[1]);
             for axis in 0..2 {
-                node_gradient[upper][axis] += ATTRACTION_WEIGHT * 2.0 * delta[axis];
-                node_gradient[lower][axis] -= ATTRACTION_WEIGHT * 2.0 * delta[axis];
+                node_gradient[upper][axis] += self.attraction_weight * 2.0 * delta[axis];
+                node_gradient[lower][axis] -= self.attraction_weight * 2.0 * delta[axis];
             }
         }
 
@@ -424,11 +443,11 @@ impl Model {
                 let (distance, at_node, at_lower, at_upper) =
                     conflict_distance(positions[node], positions[lower], positions[upper]);
                 if distance <= MIN_CONFLICT_DISTANCE {
-                    energy += REPULSION_WEIGHT / MIN_CONFLICT_DISTANCE;
+                    energy += self.repulsion_weight / MIN_CONFLICT_DISTANCE;
                     continue;
                 }
-                energy += REPULSION_WEIGHT / distance;
-                let scale = -REPULSION_WEIGHT / (distance * distance);
+                energy += self.repulsion_weight / distance;
+                let scale = -self.repulsion_weight / (distance * distance);
                 for axis in 0..2 {
                     node_gradient[node][axis] += scale * at_node[axis];
                     node_gradient[lower][axis] += scale * at_lower[axis];
@@ -470,9 +489,9 @@ impl Model {
             // zero vector lands here too and is left alone, which is what an
             // element that the projection found redundant should get.
             if mirrored[1] <= 0.0 {
-                energy += GRAVITY_WEIGHT * WRONG_HALF_PLANE_PENALTY * -mirrored[1];
+                energy += self.gravity_weight * WRONG_HALF_PLANE_PENALTY * -mirrored[1];
                 gradient[2 * element + 1] +=
-                    GRAVITY_WEIGHT * WRONG_HALF_PLANE_PENALTY * -orientation;
+                    self.gravity_weight * WRONG_HALF_PLANE_PENALTY * -orientation;
                 continue;
             }
 
@@ -489,12 +508,13 @@ impl Model {
             let zone_sin_squared = zone_sin * zone_sin;
             let (sin, cos) = angle.sin_cos();
             let offset = -zone - zone_sin * zone_cos + if side > 0.0 { 0.0 } else { PI };
-            energy += GRAVITY_WEIGHT * (side * (angle + (cos / sin) * zone_sin_squared) + offset);
+            energy +=
+                self.gravity_weight * (side * (angle + (cos / sin) * zone_sin_squared) + offset);
 
             // `dE/dφ = ±(sin²φ − sin²φ₀)/sin²φ` and `∇φ = (−y, x)/|n|²`, which
             // together lose the `|n|²`: the potential reads the direction of
             // the vector and nothing else.
-            let factor = GRAVITY_WEIGHT * side * (sin * sin - zone_sin_squared)
+            let factor = self.gravity_weight * side * (sin * sin - zone_sin_squared)
                 / (mirrored[1] * mirrored[1]);
             gradient[2 * element] += factor * -mirrored[1] * orientation;
             gradient[2 * element + 1] += factor * mirrored[0] * orientation;
@@ -791,7 +811,12 @@ mod tests {
 
     fn model_of(context: &FormalContext<String>) -> (Lattice<(BitSet, BitSet)>, Model) {
         let lattice = context.concept_lattice().expect("context has concepts");
-        let model = Model::new(&lattice.poset, context.objects.len(), context.attributes.len());
+        let model = Model::new(
+            &lattice.poset,
+            context.objects.len(),
+            context.attributes.len(),
+            &DimFlux::default(),
+        );
         (lattice, model)
     }
 
@@ -838,6 +863,7 @@ mod tests {
         let drawing = DimFlux {
             budget: SearchBudget::Milliseconds(200),
             iterations: 200,
+            ..DimFlux::default()
         }
         .draw_context(&context)
         .expect("DimFlux should produce a drawing");
@@ -1164,6 +1190,7 @@ mod tests {
                 let Some(drawing) = DimFlux {
                     budget: SearchBudget::Milliseconds(200),
                     iterations: 200,
+                    ..DimFlux::default()
                 }
                 .draw_iceberg(&iceberg, context.attributes.len()) else {
                     assert_eq!(iceberg.poset.nodes.len(), 0, "{name}/{threshold}");
@@ -1228,6 +1255,7 @@ mod tests {
                 let drawing = DimFlux {
                     budget: SearchBudget::Milliseconds(200),
                     iterations: 200,
+                    ..DimFlux::default()
                 }
                 .draw_iceberg(&iceberg, context.attributes.len())
                 .expect("a non-empty iceberg should be drawable");
@@ -1236,6 +1264,7 @@ mod tests {
                     &iceberg.poset,
                     context.objects.len(),
                     context.attributes.len(),
+                    &DimFlux::default(),
                 );
                 assert!(
                     model.is_line_diagram(&upward(&drawing)),

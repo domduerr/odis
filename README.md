@@ -76,7 +76,7 @@ for, which a node type generic in `T` cannot tell them:
 
 | Struct | Algorithm |
 |---|---|
-| `DimFlux { budget, iterations }` | DimDraw layout projected into the space of additive diagrams, then refined by a force-directed model that pushes concept nodes away from the edges they are not part of |
+| `DimFlux { budget, iterations, repulsion_weight, attraction_weight, gravity_weight }` | DimDraw layout projected into the space of additive diagrams, then refined by a force-directed model that pushes concept nodes away from the edges they are not part of |
 
 ```rust
 use odis::{algorithms::DimFlux, traits::ConceptDrawingAlgorithm};
